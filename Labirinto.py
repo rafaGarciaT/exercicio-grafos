@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from collections import deque
+from search_algorithms import bidirectional_bfs
 from config import COLS, ROWS, CELL_SIZE, PAD, COLORS
 
 class MazeEditorGUI:
@@ -8,29 +8,30 @@ class MazeEditorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Solucionador de Labirintos - Editor + BFS")
-        # Estado do labirinto (modelo de dados)
+        # Modelo e view do labirinto
         self.labirinto = [[' ' for _ in range(COLS)] for _ in range(ROWS)]
-        # IDs dos retângulos no canvas: grid_cells[row][col] = rect_id
         self.grid_cells = [[None for _ in range(COLS)] for _ in range(ROWS)]
-        # Posições especiais
         self.inicio_pos = None  # (r, c)
         self.fim_pos = None     # (r, c)
 
-        # BFS state
-        self.fila = None
-        self.visitados = None
-        self.predecessores = None
-        self.job_after = None  # id retornado por after para cancelar
-
-        # UI variables
-        self.tool_var = tk.StringVar(value='wall')  # default: parede
+        # Estado de UI
+        self.tool_var = tk.StringVar(value='wall')
+        self.tool_rbs = []
         self.running = False  # se a simulação está em execução
+
+        # Animação
+        self.visited_seq = []
+        self.final_path = []
+        self._anim_index = 0
+        self._path_idx = 0
+        self._batch_size = 150
+        self._anim_delay = 25     # Milisegundos entre frames
+        self.job_after = None
 
         self._build_ui()
         self._draw_grid_initial()
 
     def _build_ui(self):
-        # Painel principal
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill='both', expand=True, padx=8, pady=8)
 
@@ -39,19 +40,15 @@ class MazeEditorGUI:
         canvas_height = ROWS * CELL_SIZE + 2 * PAD
         self.canvas = tk.Canvas(main_frame, width=canvas_width, height=canvas_height, bg='gray90')
         self.canvas.grid(row=0, column=0, rowspan=6, sticky='nsew', padx=(0,10))
-
-        # Eventos do mouse para clique/arrasto
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
 
         # Ferramentas (Radiobuttons)
-        self.tools_frame = ttk.LabelFrame(main_frame, text="Modo Edição - Ferramenta")
-        self.tools_frame.grid(row=0, column=1, sticky='nw', padx=4, pady=4)
-        self.tool_rbs = []
-
+        tools_frame = ttk.LabelFrame(main_frame, text="Modo Edição - Ferramenta")
+        tools_frame.grid(row=0, column=1, sticky='nw', padx=4, pady=4)
         for text, val in (("Parede (#)", 'wall'), ("Caminho ( )", 'path'),
                           ("Início (S)", 'start'), ("Fim (E)", 'end')):
-            rb = ttk.Radiobutton(self.tools_frame, text=text, variable=self.tool_var, value=val)
+            rb = ttk.Radiobutton(tools_frame, text=text, variable=self.tool_var, value=val)
             rb.pack(anchor='w', padx=6, pady=2)
             self.tool_rbs.append(rb)
 
@@ -74,8 +71,9 @@ class MazeEditorGUI:
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(5, weight=1)
 
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
     def _make_legend(self, parent):
-        # Pequenas amostras de cor com texto
         items = [
             ('Parede (#)', COLORS['wall']),
             ('Caminho ( )', COLORS['path']),
@@ -124,20 +122,15 @@ class MazeEditorGUI:
             self.editar_celula(cell[0], cell[1], self.tool_var.get())
 
     def on_canvas_drag(self, event):
-        # mesmo comportamento do clique ao arrastar
         cell = self._coords_to_cell(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
         if cell:
             self.editar_celula(cell[0], cell[1], self.tool_var.get())
 
     def editar_celula(self, r, c, tool):
-        # Se a simulação estiver rodando, não permitir edição
-        if self.running:
-            return
-
+        if self.running: return
         current = self.labirinto[r][c]
-        # Se a ferramenta é start/end, garantir unicidade
+
         if tool == 'start':
-            # transformar S antigo em caminho se existir
             if self.inicio_pos and self.inicio_pos != (r,c):
                 ir, ic = self.inicio_pos
                 self.labirinto[ir][ic] = ' '
@@ -145,7 +138,7 @@ class MazeEditorGUI:
             self.inicio_pos = (r,c)
             self.labirinto[r][c] = 'S'
             self._color_cell(r, c, 'start')
-            # se havia um fim aqui por acaso, limpar fim
+
             if self.fim_pos == (r,c):
                 self.fim_pos = None
 
@@ -157,63 +150,94 @@ class MazeEditorGUI:
             self.fim_pos = (r,c)
             self.labirinto[r][c] = 'E'
             self._color_cell(r, c, 'end')
-            if self.inicio_pos == (r,c):
-                self.inicio_pos = None
+            if self.inicio_pos == (r,c): self.inicio_pos = None
 
         elif tool == 'wall':
-            # desenha parede
             self.labirinto[r][c] = '#'
             self._color_cell(r, c, 'wall')
-            # se parede estava em S ou E, atualizar posições
             if self.inicio_pos == (r,c): self.inicio_pos = None
             if self.fim_pos == (r,c): self.fim_pos = None
 
         elif tool == 'path':
-            # transforma em caminho vazio
             self.labirinto[r][c] = ' '
             self._color_cell(r, c, 'path')
             if self.inicio_pos == (r,c): self.inicio_pos = None
             if self.fim_pos == (r,c): self.fim_pos = None
 
     def _color_cell(self, r, c, kind):
-        # Aplica cor visual à célula (kind: 'wall','path','start','end','frontier','visited','final_path')
         col = COLORS.get(kind, COLORS['path'])
         rect_id = self.grid_cells[r][c]
         self.canvas.itemconfigure(rect_id, fill=col)
 
     def iniciar_busca(self):
-        if self.running:
-            return
+        if self.running: return
 
-        # Encontrar S e E se não definidos
+        # Garante posições de início/fim
         if not self.inicio_pos or not self.fim_pos:
-            # se não atribuídos explicitamente, procurar no modelo
             for r in range(ROWS):
                 for c in range(COLS):
                     if self.labirinto[r][c] == 'S':
-                        self.inicio_pos = (r,c)
+                        self.inicio_pos = (r, c)
                     elif self.labirinto[r][c] == 'E':
-                        self.fim_pos = (r,c)
+                        self.fim_pos = (r, c)
         if not self.inicio_pos or not self.fim_pos:
-            messagebox.showwarning("Aviso", "Defina um ponto de início (S) e um ponto de fim (E) antes de iniciar a busca.")
+            messagebox.showwarning("Aviso","Defina um ponto de início (S) e um ponto de fim (E) antes de iniciar a busca.")
             return
 
-        # Desabilitar controles de edição
         self._set_controls_state('disabled')
         self.running = True
 
-        # Inicializar estruturas BFS
-        self.fila = deque()
-        self.visitados = set()
-        self.predecessores = dict()
+        # Inicializar estruturas BFS bidirecionado
+        start, end = self.inicio_pos, self.fim_pos
+        visited_seq, path = bidirectional_bfs(self.labirinto, start, end)
 
-        sr, sc = self.inicio_pos
-        self.fila.append((sr, sc))
-        self.visitados.add((sr, sc))
-        # Mantemos S com sua cor, não a marcamos visitada
+        # Armazenar resultados para animação
+        self.visited_seq = visited_seq or []
+        self.final_path = path or []
+        self._anim_index = 0
+        self._path_idx = 0
 
-        # Agendar primeiro passo
-        self.job_after = self.root.after(120, self.processar_passo_bfs)
+        self.job_after = self.root.after(self._anim_delay, self._animate_search)
+
+    def _animate_search(self):
+        total = len(self.visited_seq)
+        if self._anim_index >= total:
+            if self.final_path:
+                self.job_after = self.root.after(150, self._animate_path_indexed)
+            else:
+                self.running = False
+                self._set_controls_state('normal')
+                messagebox.showinfo("Resultado", "Busca finalizada — Caminho não encontrado.")
+                self.job_after = None
+            return
+
+        end = min(self._anim_index + self._batch_size, total)
+        for i in range(self._anim_index, end):
+            r, c = self.visited_seq[i]
+            if self.labirinto[r][c] not in ('#', 'S', 'E'):
+                self._color_cell(r, c, 'visited') # pintar como visitado
+        self._anim_index = end
+
+        if self.running:
+            self.job_after = self.root.after(self._anim_delay, self._animate_search)
+        else:
+            self.job_after = None
+
+    def _animate_path_indexed(self):
+        self._path_idx = getattr(self, '_path_idx', 0)
+        if self._path_idx >= len(self.final_path):
+            self._path_idx = 0
+            self.running = False
+            self._set_controls_state('normal')
+            messagebox.showinfo("Resultado", "Busca finalizada — Caminho encontrado!")
+            self.job_after = None
+            return
+
+        r, c = self.final_path[self._path_idx]
+        if (r, c) != self.inicio_pos and (r, c) != self.fim_pos and self.labirinto[r][c] != '#':
+            self._color_cell(r, c, 'final_path')
+        self._path_idx += 1
+        self.job_after = self.root.after(60, self._animate_path_indexed)
 
     def processar_passo_bfs(self):
         # Se fila vazia -> não encontrou
@@ -283,20 +307,24 @@ class MazeEditorGUI:
         messagebox.showinfo("Resultado", "Busca finalizada — Caminho encontrado!")
 
     def resetar_busca(self):
-        # Cancela animação e limpa cores de visitado/fronteira/caminho final
         if self.job_after:
             try:
                 self.root.after_cancel(self.job_after)
             except Exception:
                 pass
             self.job_after = None
+
         self.running = False
+        self.visited_seq = []
+        self.final_path = []
+        self._anim_index = 0
+        self._path_idx = 0
+
         self._set_controls_state('normal')
 
         for r in range(ROWS):
             for c in range(COLS):
                 val = self.labirinto[r][c]
-                # manter paredes, start, end; reverter visitados/frontier/final para caminho
                 if val == '#':
                     self._color_cell(r, c, 'wall')
                 elif val == 'S':
@@ -304,16 +332,9 @@ class MazeEditorGUI:
                 elif val == 'E':
                     self._color_cell(r, c, 'end')
                 else:
-                    # restaurar caminho (branco)
                     self._color_cell(r, c, 'path')
 
-        # limpar estruturas BFS
-        self.fila = None
-        self.visitados = None
-        self.predecessores = None
-
     def limpar_labirinto(self):
-        # Limpa todo o labirinto para caminhos
         if self.running:
             messagebox.showwarning("Aviso", "Não é possível limpar o labirinto enquanto a simulação está rodando. Pressione 'Resetar Busca' primeiro.")
             return
@@ -325,9 +346,6 @@ class MazeEditorGUI:
                 self._color_cell(r, c, 'path')
 
     def _set_controls_state(self, state):
-        # muda o estado dos controles de edição/simulação
-        # state: 'normal' ou 'disabled'
-        # Botões principais
         btn_state = 'disabled' if state == 'disabled' else 'normal'
         self.start_btn.config(state=btn_state)
         self.reset_search_btn.config(state=btn_state)
