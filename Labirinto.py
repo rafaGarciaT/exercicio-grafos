@@ -348,9 +348,23 @@ class MazeEditorGUI:
             self.canvas.bind("<Button-1>", self.on_canvas_click)
             self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
 
+    def on_close(self):
+        # Garantece que a simulação é parada antes de fechar
+        if getattr(self, 'job_after', None):
+            try:
+                self.root.after_cancel(self.job_after)
+            except Exception:
+                pass
+            self.job_after = None
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
 def main():
     root = tk.Tk()
     app = MazeEditorGUI(root)
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()
 
 if __name__ == '__main__':
