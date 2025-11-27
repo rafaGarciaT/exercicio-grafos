@@ -45,12 +45,15 @@ class MazeEditorGUI:
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
 
         # Ferramentas (Radiobuttons)
-        tools_frame = ttk.LabelFrame(main_frame, text="Modo Edição - Ferramenta")
-        tools_frame.grid(row=0, column=1, sticky='nw', padx=4, pady=4)
-        ttk.Radiobutton(tools_frame, text="Parede (#)", variable=self.tool_var, value='wall').pack(anchor='w', padx=6, pady=2)
-        ttk.Radiobutton(tools_frame, text="Caminho ( )", variable=self.tool_var, value='path').pack(anchor='w', padx=6, pady=2)
-        ttk.Radiobutton(tools_frame, text="Início (S)", variable=self.tool_var, value='start').pack(anchor='w', padx=6, pady=2)
-        ttk.Radiobutton(tools_frame, text="Fim (E)", variable=self.tool_var, value='end').pack(anchor='w', padx=6, pady=2)
+        self.tools_frame = ttk.LabelFrame(main_frame, text="Modo Edição - Ferramenta")
+        self.tools_frame.grid(row=0, column=1, sticky='nw', padx=4, pady=4)
+        self.tool_rbs = []
+
+        for text, val in (("Parede (#)", 'wall'), ("Caminho ( )", 'path'),
+                          ("Início (S)", 'start'), ("Fim (E)", 'end')):
+            rb = ttk.Radiobutton(self.tools_frame, text=text, variable=self.tool_var, value=val)
+            rb.pack(anchor='w', padx=6, pady=2)
+            self.tool_rbs.append(rb)
 
         # Controles de simulação
         sim_frame = ttk.LabelFrame(main_frame, text="Simulação (BFS)")
@@ -322,19 +325,26 @@ class MazeEditorGUI:
                 self._color_cell(r, c, 'path')
 
     def _set_controls_state(self, state):
-        
+        # muda o estado dos controles de edição/simulação
+        # state: 'normal' ou 'disabled'
+        # Botões principais
+        btn_state = 'disabled' if state == 'disabled' else 'normal'
+        self.start_btn.config(state=btn_state)
+        self.reset_search_btn.config(state=btn_state)
+        self.clear_btn.config(state=btn_state)
+
+        # Radiobuttons de ferramenta
+        for rb in getattr(self, 'tool_rbs', ()):
+            try:
+                rb.config(state=btn_state)
+            except Exception:
+                pass
+
+        # Edição no canvas
         if state == 'disabled':
-            self.start_btn.config(state='disabled')
-            self.reset_search_btn.config(state='disabled')
-            self.clear_btn.config(state='disabled')
-            # Para evitar edição, desabilitamos bind temporariamente guardando-os
             self.canvas.unbind("<Button-1>")
             self.canvas.unbind("<B1-Motion>")
         else:
-            self.start_btn.config(state='normal')
-            self.reset_search_btn.config(state='normal')
-            self.clear_btn.config(state='normal')
-            # restaurar bindings
             self.canvas.bind("<Button-1>", self.on_canvas_click)
             self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
 
