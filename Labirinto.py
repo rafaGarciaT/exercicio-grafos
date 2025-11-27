@@ -1,32 +1,17 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from collections import deque
+from config import COLS, ROWS, CELL_SIZE, PAD, COLORS
 
 class MazeEditorGUI:
-    # Configurações da grade
-    COLS = 30
-    ROWS = 20
-    CELL_SIZE = 26  # pixels por célula
-    PAD = 2  # padding ao redor do canvas
-
-    # Cores (paleta sugerida)
-    COLORS = {
-        'wall': "#1E3A5F",        # #
-        'path': "#FFFFFF",        # espaço
-        'start': "#4CAF50",       # S
-        'end': "#F44336",         # E
-        'frontier': "#AED6F1",    # fila
-        'visited': "#D6EAF8",     # visitado
-        'final_path': "#FFD700"   # caminho final
-    }
 
     def __init__(self, root):
         self.root = root
         self.root.title("Solucionador de Labirintos - Editor + BFS")
         # Estado do labirinto (modelo de dados)
-        self.labirinto = [[' ' for _ in range(self.COLS)] for _ in range(self.ROWS)]
+        self.labirinto = [[' ' for _ in range(COLS)] for _ in range(ROWS)]
         # IDs dos retângulos no canvas: grid_cells[row][col] = rect_id
-        self.grid_cells = [[None for _ in range(self.COLS)] for _ in range(self.ROWS)]
+        self.grid_cells = [[None for _ in range(COLS)] for _ in range(ROWS)]
         # Posições especiais
         self.inicio_pos = None  # (r, c)
         self.fim_pos = None     # (r, c)
@@ -50,8 +35,8 @@ class MazeEditorGUI:
         main_frame.pack(fill='both', expand=True, padx=8, pady=8)
 
         # Canvas
-        canvas_width = self.COLS * self.CELL_SIZE + 2 * self.PAD
-        canvas_height = self.ROWS * self.CELL_SIZE + 2 * self.PAD
+        canvas_width = COLS * CELL_SIZE + 2 * PAD
+        canvas_height = ROWS * CELL_SIZE + 2 * PAD
         self.canvas = tk.Canvas(main_frame, width=canvas_width, height=canvas_height, bg='gray90')
         self.canvas.grid(row=0, column=0, rowspan=6, sticky='nsew', padx=(0,10))
 
@@ -89,13 +74,13 @@ class MazeEditorGUI:
     def _make_legend(self, parent):
         # Pequenas amostras de cor com texto
         items = [
-            ('Parede (#)', self.COLORS['wall']),
-            ('Caminho ( )', self.COLORS['path']),
-            ('Início (S)', self.COLORS['start']),
-            ('Fim (E)', self.COLORS['end']),
-            ('Fronteira', self.COLORS['frontier']),
-            ('Visitado', self.COLORS['visited']),
-            ('Caminho Final', self.COLORS['final_path'])
+            ('Parede (#)', COLORS['wall']),
+            ('Caminho ( )', COLORS['path']),
+            ('Início (S)', COLORS['start']),
+            ('Fim (E)', COLORS['end']),
+            ('Fronteira', COLORS['frontier']),
+            ('Visitado', COLORS['visited']),
+            ('Caminho Final', COLORS['final_path'])
         ]
         for label, color in items:
             frame = ttk.Frame(parent)
@@ -107,26 +92,26 @@ class MazeEditorGUI:
 
     def _draw_grid_initial(self):
         # Desenha a grade e armazena os ids
-        for r in range(self.ROWS):
-            for c in range(self.COLS):
-                x1 = self.PAD + c * self.CELL_SIZE
-                y1 = self.PAD + r * self.CELL_SIZE
-                x2 = x1 + self.CELL_SIZE
-                y2 = y1 + self.CELL_SIZE
+        for r in range(ROWS):
+            for c in range(COLS):
+                x1 = PAD + c * CELL_SIZE
+                y1 = PAD + r * CELL_SIZE
+                x2 = x1 + CELL_SIZE
+                y2 = y1 + CELL_SIZE
                 rect = self.canvas.create_rectangle(x1, y1, x2, y2,
-                                                    fill=self.COLORS['path'],
+                                                    fill=COLORS['path'],
                                                     outline="#cccccc")
                 self.grid_cells[r][c] = rect
 
     def _coords_to_cell(self, x, y):
         # Converte coordenadas do canvas para índices da célula
-        cx = x - self.PAD
-        cy = y - self.PAD
+        cx = x - PAD
+        cy = y - PAD
         if cx < 0 or cy < 0:
             return None
-        c = int(cx / self.CELL_SIZE)
-        r = int(cy / self.CELL_SIZE)
-        if 0 <= r < self.ROWS and 0 <= c < self.COLS:
+        c = int(cx / CELL_SIZE)
+        r = int(cy / CELL_SIZE)
+        if 0 <= r < ROWS and 0 <= c < COLS:
             return (r, c)
         return None
 
@@ -189,7 +174,7 @@ class MazeEditorGUI:
 
     def _color_cell(self, r, c, kind):
         # Aplica cor visual à célula (kind: 'wall','path','start','end','frontier','visited','final_path')
-        col = self.COLORS.get(kind, self.COLORS['path'])
+        col = COLORS.get(kind, COLORS['path'])
         rect_id = self.grid_cells[r][c]
         self.canvas.itemconfigure(rect_id, fill=col)
 
@@ -200,8 +185,8 @@ class MazeEditorGUI:
         # Encontrar S e E se não definidos
         if not self.inicio_pos or not self.fim_pos:
             # se não atribuídos explicitamente, procurar no modelo
-            for r in range(self.ROWS):
-                for c in range(self.COLS):
+            for r in range(ROWS):
+                for c in range(COLS):
                     if self.labirinto[r][c] == 'S':
                         self.inicio_pos = (r,c)
                     elif self.labirinto[r][c] == 'E':
@@ -255,7 +240,7 @@ class MazeEditorGUI:
         # Vizinhos 4-direções
         for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
             nr, nc = r + dr, c + dc
-            if 0 <= nr < self.ROWS and 0 <= nc < self.COLS:
+            if 0 <= nr < ROWS and 0 <= nc < COLS:
                 if (nr, nc) not in self.visitados:
                     cell_val = self.labirinto[nr][nc]
                     # Podemos atravessar apenas caminhos e E (não paredes)
@@ -305,8 +290,8 @@ class MazeEditorGUI:
         self.running = False
         self._set_controls_state('normal')
 
-        for r in range(self.ROWS):
-            for c in range(self.COLS):
+        for r in range(ROWS):
+            for c in range(COLS):
                 val = self.labirinto[r][c]
                 # manter paredes, start, end; reverter visitados/frontier/final para caminho
                 if val == '#':
@@ -331,8 +316,8 @@ class MazeEditorGUI:
             return
         self.inicio_pos = None
         self.fim_pos = None
-        for r in range(self.ROWS):
-            for c in range(self.COLS):
+        for r in range(ROWS):
+            for c in range(COLS):
                 self.labirinto[r][c] = ' '
                 self._color_cell(r, c, 'path')
 
